@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only authenticated staff can read/write
+    function isStaff() {
+      return request.auth != null;
+    }
+    match /bikes/{bikeId} {
+      allow read, write: if isStaff();
+    }
+    match /rentals/{rentalId} {
+      allow read, write: if isStaff();
+    }
+    match /config/{docId} {
+      allow read, write: if isStaff();
+    }
+  }
+}

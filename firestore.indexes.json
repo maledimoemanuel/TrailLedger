@@ -1,0 +1,20 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "rentals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rentals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
