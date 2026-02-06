@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -25,6 +25,7 @@ export default function DashboardLayout({
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -44,8 +45,8 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg-elevated)]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-2 sm:h-14 sm:flex-row sm:items-center sm:justify-between">
+      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg-elevated)]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-2 sm:h-14">
           <Link
             href="/dashboard"
             className="flex shrink-0 items-center no-tap"
@@ -60,7 +61,8 @@ export default function DashboardLayout({
               priority
             />
           </Link>
-          <nav className="flex w-full items-center gap-1 overflow-x-auto sm:w-auto sm:justify-end">
+          {/* Desktop nav */}
+          <nav className="hidden items-center gap-1 sm:flex">
             {nav.map(({ href, label }) => (
               <Link
                 key={href}
@@ -79,8 +81,50 @@ export default function DashboardLayout({
             </span>
             <SignOutButton />
           </nav>
+
+          {/* Mobile actions */}
+          <div className="flex items-center gap-2 sm:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-label="Toggle navigation"
+              aria-expanded={mobileOpen}
+              className="no-tap inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg)] text-[var(--text)] hover:bg-[var(--bg-muted)]"
+            >
+              <span className="block h-0.5 w-4 rounded bg-current" />
+              <span className="sr-only">Menu</span>
+            </button>
+          </div>
         </div>
       </header>
+
+      {/* Mobile nav panel */}
+      {mobileOpen && (
+        <nav className="sm:hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]">
+          <div className="mx-auto max-w-5xl px-4 py-3 space-y-1">
+            {nav.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setMobileOpen(false)}
+                className={`block rounded-[var(--radius-lg)] px-3 py-2 text-sm font-medium no-tap ${
+                  pathname === href || pathname.startsWith(href + "/")
+                    ? "bg-[var(--bg-muted)] text-[var(--text)]"
+                    : "text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+                }`}
+              >
+                {label}
+              </Link>
+            ))}
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="truncate text-xs text-[var(--text-faint)]">
+                {user.email}
+              </span>
+              <SignOutButton />
+            </div>
+          </div>
+        </nav>
+      )}
       <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
     </div>
   );
