@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { useCallback, useEffect, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { InlineLoader } from "@/components/ui/inline-loader";
 
@@ -20,81 +19,69 @@ export function TagScannerModal({
   onClose,
   onCodeScanned,
 }: TagScannerModalProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const [scanning, setScanning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
 
-  const handleCode = useCallback(
-    async (code: string) => {
-      const normalized = normalizeCode(code);
-      if (!normalized) return;
-      (readerRef.current as { reset?: () => void } | null)?.reset?.();
-      setScanning(false);
-      setError(null);
-      setBusy(true);
-      try {
-        await onCodeScanned(normalized);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onCodeScanned]
-  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setNfcSupported("NDEFReader" in (window as unknown as { NDEFReader?: unknown }));
+  }, [open]);
 
-  const startScanning = useCallback(async () => {
-    if (!videoRef.current || !navigator.mediaDevices?.getUserMedia) {
-      setError(
-        "Camera not available. Use https or localhost and allow camera access, or enter the tag below."
-      );
+  const startNfcScan = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const NDEFReaderCtor = (window as any).NDEFReader;
+    if (!NDEFReaderCtor) {
+      setError("Web NFC is not supported in this browser.");
+      setNfcSupported(false);
       return;
     }
     setError(null);
-    setScanning(true);
-    const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
+    setBusy(true);
     try {
-      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
-      const videoInput =
-        devices.find((d) => d.label.toLowerCase().includes("back")) ??
-        devices[0];
-      await reader.decodeFromVideoDevice(
-        videoInput?.deviceId ?? undefined,
-        videoRef.current,
-        (result) => {
-          if (result) {
-            const text = result.getText().trim();
-            if (text) handleCode(text);
+      const reader = new NDEFReaderCtor();
+      await reader.scan();
+
+      reader.onreading = (event: any) => {
+        let code: string | undefined = event?.serialNumber;
+        if (!code && event?.message?.records?.length) {
+          const decoder = new TextDecoder();
+          for (const record of event.message.records) {
+            if (record.recordType === "text") {
+              code = decoder.decode(record.data);
+              break;
+            }
           }
         }
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Camera error");
-      setScanning(false);
-    }
-  }, [handleCode]);
+        if (code) {
+          void onCodeScanned(normalizeCode(code));
+        } else {
+          setError("NFC tag does not contain a bike ID.");
+        }
+        reader.onreading = null;
+        reader.onreadingerror = null;
+        setBusy(false);
+      };
 
-  useEffect(() => {
-    if (!open) {
-      (readerRef.current as { reset?: () => void } | null)?.reset?.();
-      setScanning(false);
-      setError(null);
+      reader.onreadingerror = () => {
+        setError("Could not read NFC tag. Try again.");
+        setBusy(false);
+      };
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "NFC scanning failed. Make sure NFC is enabled and you granted permission.";
+      setError(msg);
       setBusy(false);
     }
-  }, [open]);
-
-  useEffect(() => {
-    return () => {
-      (readerRef.current as { reset?: () => void } | null)?.reset?.();
-    };
-  }, []);
+  }, [onCodeScanned]);
 
   return (
     <Modal open={open} onClose={onClose} ariaLabelledBy="tag-scanner-title">
       <div className="space-y-4">
         <h2 id="tag-scanner-title" className="text-lg font-semibold text-[var(--text)]">
-          Scan tag to add bike
+          Enter tag to add bike
         </h2>
 
         {error && (
@@ -103,79 +90,31 @@ export function TagScannerModal({
           </p>
         )}
 
-        {!scanning ? (
-          <>
-            <button
-              type="button"
-              onClick={startScanning}
-              disabled={busy}
-              className="h-12 w-full rounded-[var(--radius-lg)] bg-[var(--accent)] font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-60"
-            >
-              {busy ? (
-                <span className="inline-flex items-center gap-2">
-                  <InlineLoader className="h-4 w-4 border-white" />
-                  Checking…
-                </span>
-              ) : (
-                "Start camera & scan"
-              )}
-            </button>
-
-            <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-muted)] p-3">
-              <p className="mb-2 text-sm text-[var(--text-muted)]">
-                Or enter tag manually (e.g. TL-001)
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const input = e.currentTarget.querySelector<HTMLInputElement>("input[name=tag]");
-                  const value = input?.value?.trim();
-                  if (value) handleCode(value);
-                }}
-                className="flex gap-2"
-              >
-                <input
-                  type="text"
-                  name="tag"
-                  placeholder="TL-001"
-                  disabled={busy}
-                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 font-mono text-[var(--text)] placeholder-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30 disabled:opacity-60"
-                />
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="rounded-lg bg-[var(--bg-elevated)] px-4 font-medium text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
-                >
-                  Use this tag
-                </button>
-              </form>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-3">
-            <div className="relative aspect-[4/3] overflow-hidden rounded-[var(--radius-lg)] bg-black">
-              <video
-                ref={videoRef}
-                className="h-full w-full object-cover"
-                muted
-                playsInline
-              />
-            </div>
-            <p className="text-center text-sm text-[var(--text-muted)]">
-              Point camera at the bike tag
+        <div className="space-y-3">
+          {nfcSupported === false && (
+            <p className="text-sm text-[var(--danger)]">
+              This browser doesn&apos;t support Web NFC. Use an NFC-capable browser (e.g. Chrome on Android).
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                (readerRef.current as { reset?: () => void } | null)?.reset?.();
-                setScanning(false);
-              }}
-              className="h-12 w-full rounded-[var(--radius-lg)] border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-muted)]"
-            >
-              Stop camera
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            type="button"
+            disabled={busy || nfcSupported === false}
+            onClick={startNfcScan}
+            className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
+          >
+            {busy ? (
+              <>
+                <InlineLoader className="h-4 w-4 border-white" />
+                <span>Waiting for NFC tag…</span>
+              </>
+            ) : (
+              "Scan NFC tag"
+            )}
+          </button>
+          <p className="text-xs text-[var(--text-muted)]">
+            Hold the bike&apos;s NFC tag near the phone&apos;s NFC reader. When it beeps or vibrates, the bike ID will be used automatically.
+          </p>
+        </div>
 
         <button
           type="button"

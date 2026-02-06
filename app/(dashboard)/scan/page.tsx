@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { useEffect, useState } from "react";
 import {
   getBikeByBikeId,
   findActiveRentalByBikeId,
@@ -35,8 +34,6 @@ function playSuccessBeep() {
 export default function ScanPage() {
   const { user } = useAuth();
   const toast = useToast();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [scanning, setScanning] = useState(false);
   const [success, setSuccess] = useState<"check_out" | "check_in" | null>(null);
   const [result, setResult] = useState<{
     bikeId: string;
@@ -47,43 +44,11 @@ export default function ScanPage() {
   const [addBikeScannedCode, setAddBikeScannedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const [nfcSupported, setNfcSupported] = useState<boolean | null>(null);
 
-  const startScanning = useCallback(async () => {
-    if (!videoRef.current || !navigator.mediaDevices?.getUserMedia) {
-      setError(
-        "Camera not available. Use the app on https or localhost and allow camera access. Or enter a bike ID below."
-      );
-      return;
-    }
-    setResult(null);
-    setError(null);
-    setScanning(true);
-    const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
-    try {
-      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
-      const videoInput =
-        devices.find((d) => d.label.toLowerCase().includes("back")) ??
-        devices[0];
-      await reader.decodeFromVideoDevice(
-        videoInput?.deviceId ?? undefined,
-        videoRef.current,
-        (result, err) => {
-          if (result) {
-            const text = result.getText().trim();
-            if (text) {
-              (reader as { reset?: () => void }).reset?.();
-              setScanning(false);
-              handleScannedCode(text);
-            }
-          }
-        }
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Camera error");
-      setScanning(false);
-    }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setNfcSupported("NDEFReader" in (window as unknown as { NDEFReader?: unknown }));
   }, []);
 
   async function handleScannedCode(code: string) {
@@ -136,7 +101,6 @@ export default function ScanPage() {
       setResult(null);
       setSuccess("check_out");
       setTimeout(() => setSuccess(null), 1800);
-      setScanning(false);
       toast.success("Checked out");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Check out failed";
@@ -157,7 +121,6 @@ export default function ScanPage() {
       setResult(null);
       setSuccess("check_in");
       setTimeout(() => setSuccess(null), 1800);
-      setScanning(false);
       toast.success("Checked in");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Check in failed";
@@ -171,14 +134,7 @@ export default function ScanPage() {
   function cancelResult() {
     setResult(null);
     setError(null);
-    startScanning();
   }
-
-  useEffect(() => {
-    return () => {
-      (readerRef.current as { reset?: () => void } | null)?.reset?.();
-    };
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -186,7 +142,7 @@ export default function ScanPage() {
         Scan bike
       </h1>
       <p className="text-sm text-[var(--text-muted)]">
-        Scan QR or enter bike ID. One tap to check out or check in.
+        Scan an NFC tag to start or end a rental. This works in supported browsers (e.g. Chrome on Android).
       </p>
 
       {success && (
@@ -201,69 +157,74 @@ export default function ScanPage() {
         </div>
       )}
 
-      {!scanning && !result && !success && (
-        <>
-          <button
-            type="button"
-            onClick={startScanning}
-            className="h-14 w-full rounded-[var(--radius-lg)] bg-[var(--accent)] font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
-          >
-            Start camera & scan
-          </button>
-
-          <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-            <p className="mb-3 text-sm text-[var(--text-muted)]">
-              No camera? Enter bike ID manually (e.g. TL-001)
+      {!result && !success && (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 space-y-3">
+          {nfcSupported === false && (
+            <p className="text-sm text-[var(--danger)]">
+              This browser doesn&apos;t support Web NFC. Use an NFC-capable browser (e.g. Chrome on Android) to scan tags.
             </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const input = e.currentTarget.querySelector<HTMLInputElement>("input[name=bikeId]");
-                const value = input?.value?.trim();
-                if (value) handleScannedCode(value.toUpperCase().replace(/\s/g, ""));
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                name="bikeId"
-                placeholder="TL-001"
-                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-4 py-3 font-mono text-[var(--text)] placeholder-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="h-12 rounded-lg bg-[var(--bg-muted)] px-4 font-medium text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-50"
-              >
-                Look up
-              </button>
-            </form>
-          </div>
-        </>
-      )}
-
-      {scanning && !result && !success && (
-        <div className="space-y-4">
-          <div className="relative aspect-[4/3] overflow-hidden rounded-[var(--radius-lg)] bg-black">
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              muted
-              playsInline
-            />
-          </div>
-          <p className="text-center text-sm text-[var(--text-muted)]">
-            Point camera at bike QR code
-          </p>
+          )}
           <button
             type="button"
-            onClick={() => {
-              (readerRef.current as { reset?: () => void } | null)?.reset?.();
-              setScanning(false);
+            disabled={busy || nfcSupported === false}
+            onClick={async () => {
+              if (typeof window === "undefined") return;
+              const NDEFReaderCtor = (window as any).NDEFReader;
+              if (!NDEFReaderCtor) {
+                setError("Web NFC is not supported in this browser.");
+                setNfcSupported(false);
+                return;
+              }
+              setError(null);
+              setBusy(true);
+              try {
+                const reader = new NDEFReaderCtor();
+                await reader.scan();
+
+                reader.onreading = (event: any) => {
+                  let code: string | undefined = event?.serialNumber;
+                  if (!code && event?.message?.records?.length) {
+                    const decoder = new TextDecoder();
+                    for (const record of event.message.records) {
+                      if (record.recordType === "text") {
+                        code = decoder.decode(record.data);
+                        break;
+                      }
+                    }
+                  }
+                  if (code) {
+                    void handleScannedCode(code);
+                  } else {
+                    setError("NFC tag does not contain a bike ID.");
+                  }
+                  reader.onreading = null;
+                  reader.onreadingerror = null;
+                  setBusy(false);
+                };
+
+                reader.onreadingerror = () => {
+                  setError("Could not read NFC tag. Try again.");
+                  setBusy(false);
+                };
+              } catch (e) {
+                const msg =
+                  e instanceof Error
+                    ? e.message
+                    : "NFC scanning failed. Make sure NFC is enabled and you granted permission.";
+                setError(msg);
+                setBusy(false);
+              }
             }}
-            className="h-12 w-full rounded-[var(--radius-lg)] border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-muted)]"
+            className="h-12 w-full rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-center text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-50"
           >
-            Stop camera
+            {busy ? (
+              <span className="inline-flex items-center gap-2">
+                <InlineLoader className="h-4 w-4 border-white" />
+                <span>Waiting for tag…</span>
+              </span>
+            ) : (
+              "Scan NFC tag"
+            )}
           </button>
         </div>
       )}

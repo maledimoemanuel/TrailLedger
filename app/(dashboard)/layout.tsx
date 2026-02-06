@@ -46,6 +46,7 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-[var(--bg)]">
       <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg-elevated)]/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4">
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-2 sm:h-14 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/dashboard"
             className="flex shrink-0 items-center no-tap"
@@ -60,7 +61,7 @@ export default function DashboardLayout({
               priority
             />
           </Link>
-          <nav className="flex flex-1 items-center justify-end gap-1 overflow-x-auto">
+          <nav className="flex w-full items-center gap-1 overflow-x-auto sm:w-auto sm:justify-end">
             {nav.map(({ href, label }) => (
               <Link
                 key={href}
@@ -74,7 +75,7 @@ export default function DashboardLayout({
                 {label}
               </Link>
             ))}
-            <span className="ml-2 shrink-0 text-xs text-[var(--text-faint)] no-tap">
+            <span className="ml-2 hidden shrink-0 text-xs text-[var(--text-faint)] no-tap sm:inline">
               {user.email}
             </span>
             <SignOutButton />
