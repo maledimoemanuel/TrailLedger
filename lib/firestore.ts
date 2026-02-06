@@ -16,8 +16,8 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { getParkConfig } from "./config";
-import { addMinutes } from "./rental-utils";
-import type { Bike, Rental } from "./types";
+import { addMinutes, toDate } from "./rental-utils";
+import type { Bike, Rental, RenterInfo } from "./types";
 import type { ParkConfig } from "./types";
 
 const BIKES = "bikes";
@@ -91,7 +91,8 @@ export async function checkOut(
   bikeDocId: string,
   bikeId: string,
   staffId: string,
-  staffEmail: string
+  staffEmail: string,
+  renter?: RenterInfo
 ): Promise<string> {
   if (!db) throw new Error("Firestore not initialized");
   const existing = await findActiveRentalByBikeId(bikeId);
@@ -105,7 +106,7 @@ export async function checkOut(
 
   const batch = writeBatch(db);
   const rentalRef = doc(collection(db, RENTALS));
-  batch.set(rentalRef, {
+  const rentalData: Record<string, unknown> = {
     bikeId,
     bikeDocId,
     status: "buffer",
@@ -116,7 +117,13 @@ export async function checkOut(
     rentalEndsAt,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (renter?.name) {
+    rentalData.renterName = renter.name.trim();
+    if (renter.email?.trim()) rentalData.renterEmail = renter.email.trim();
+    if (renter.phone?.trim()) rentalData.renterPhone = renter.phone.trim();
+  }
+  batch.set(rentalRef, rentalData);
   const bikeRef = doc(db, BIKES, bikeDocId);
   batch.update(bikeRef, {
     status: "out",
@@ -126,7 +133,7 @@ export async function checkOut(
   return rentalRef.id;
 }
 
-export async function checkIn(rentalId: string): Promise<void> {
+export async function checkIn(rentalId: string): Promise<Rental> {
   if (!db) throw new Error("Firestore not initialized");
   const rentalRef = doc(db, RENTALS, rentalId);
   const rentalSnap = await getDoc(rentalRef);
@@ -152,6 +159,17 @@ export async function checkIn(rentalId: string): Promise<void> {
     updatedAt: serverTimestamp(),
   });
   await batch.commit();
+
+  const updated = await getDoc(rentalRef);
+  return { id: updated.id, ...updated.data() } as Rental;
+}
+
+export async function getRentalById(rentalId: string): Promise<Rental | null> {
+  if (!db) return null;
+  const ref = doc(db, RENTALS, rentalId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() } as Rental;
 }
 
 export async function findActiveRentalByBikeId(
@@ -265,6 +283,34 @@ export async function getRentalsByDateRange(start: Date, end: Date): Promise<Ren
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Rental));
+}
+
+/** Recently returned rentals (date-range + filter by status, sorted by returnedAt desc). */
+export async function getReturnedRentals(limit = 50): Promise<Rental[]> {
+  if (!db) return [];
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const rentals = await getRentalsByDateRange(start, end);
+  const returned = rentals.filter((r) => r.status === "returned" && r.returnedAt);
+  returned.sort((a, b) => {
+    const ta = a.returnedAt ? toDate(a.returnedAt) : new Date(0);
+    const tb = b.returnedAt ? toDate(b.returnedAt) : new Date(0);
+    return tb.getTime() - ta.getTime();
+  });
+  return returned.slice(0, limit);
+}
+
+/** Rentals for one bike (date-range + filter by bikeDocId, sorted by startedAt desc). */
+export async function getRentalsByBikeDocId(
+  bikeDocId: string,
+  limit = 20
+): Promise<Rental[]> {
+  if (!db) return [];
+  const end = new Date();
+  const start = new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const rentals = await getRentalsByDateRange(start, end);
+  const byBike = rentals.filter((r) => r.bikeDocId === bikeDocId);
+  return byBike.slice(0, limit);
 }
 
 export async function seedDemo(staffId: string, staffEmail: string): Promise<void> {

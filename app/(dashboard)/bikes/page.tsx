@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { getAllBikes, getBikeByBikeId, updateBikeStatus, deleteBike } from "@/lib/firestore";
 import { useToast } from "@/components/ui/toast";
@@ -11,6 +11,21 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { TagScannerModal } from "@/components/bikes/tag-scanner-modal";
 import { AddBikeModal } from "@/components/bikes/add-bike-modal";
 import type { Bike } from "@/lib/types";
+
+function statusBadgeClass(status: Bike["status"]): string {
+  switch (status) {
+    case "available":
+      return "bg-[var(--success-bg)] text-[var(--success)]";
+    case "out":
+      return "bg-[var(--bg-muted)] text-[var(--text-muted)]";
+    case "overdue":
+      return "bg-[var(--danger-bg)] text-[var(--danger)]";
+    case "maintenance":
+      return "bg-[var(--warning-bg)] text-[var(--warning)]";
+    default:
+      return "bg-[var(--bg-muted)] text-[var(--text-muted)]";
+  }
+}
 
 export default function BikesPage() {
   const toast = useToast();
@@ -23,6 +38,7 @@ export default function BikesPage() {
   const [bikeToRemove, setBikeToRemove] = useState<Bike | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [maintenanceId, setMaintenanceId] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
   const handleTagScanned = useCallback(
     async (code: string) => {
@@ -52,6 +68,16 @@ export default function BikesPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const filteredBikes = useMemo(() => {
+    if (!filter.trim()) return bikes;
+    const q = filter.trim().toLowerCase();
+    return bikes.filter(
+      (b) =>
+        b.bikeId.toLowerCase().includes(q) ||
+        (b.label ?? "").toLowerCase().includes(q)
+    );
+  }, [bikes, filter]);
 
   async function handleMaintenance(bike: Bike) {
     const next =
@@ -134,7 +160,15 @@ export default function BikesPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-4">
+      <div className="flex flex-wrap items-center gap-4">
+        <input
+          type="search"
+          placeholder="Search by bike ID or label…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label="Search bikes"
+          className="min-w-[200px] max-w-xs rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none"
+        />
         <button
           type="button"
           onClick={() => setScanModalOpen(true)}
@@ -171,86 +205,100 @@ export default function BikesPage() {
         loading={deleting}
       />
 
-      <ul className="divide-y divide-[var(--border)] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-card)]">
-        {bikes.length === 0 ? (
-          <li className="list-none p-0">
-            <EmptyState
-              heading="No bikes"
-              description="Click Add bike to scan a tag and register a new bike."
-            />
-          </li>
-        ) : (
-          bikes.map((bike) => (
-            <li
-              key={bike.id}
-              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+      {bikes.length === 0 ? (
+        <EmptyState
+          heading="No bikes"
+          description="Click Add bike to scan a tag and register a new bike."
+          action={
+            <button
+              type="button"
+              onClick={() => setScanModalOpen(true)}
+              className="inline-flex h-12 items-center justify-center rounded-lg bg-[var(--accent)] px-6 font-medium text-white hover:bg-[var(--accent-hover)]"
             >
-              <Link
-                href={`/bikes/${bike.id}`}
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg transition-colors hover:bg-[var(--bg-muted)]/50 -mx-2 px-2 py-1"
-              >
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]">
-                  {bike.photoUrls?.[0] ? (
-                    <img
-                      src={bike.photoUrls[0]}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-xl text-[var(--text-faint)]" aria-hidden>🚲</span>
-                  )}
+              Add bike
+            </button>
+          }
+        />
+      ) : filteredBikes.length === 0 ? (
+        <p className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-6 text-center text-sm text-[var(--text-muted)]">
+          No bikes match &quot;{filter}&quot;.
+        </p>
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2">
+          {filteredBikes.map((bike) => (
+            <li key={bike.id}>
+              <div className="group flex items-center gap-4 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 shadow-[var(--shadow-card)] transition-[border-color,shadow] hover:border-[var(--accent)]/40 hover:shadow-[var(--shadow-modal)]/30 focus-within:ring-2 focus-within:ring-[var(--accent)] focus-within:ring-offset-2">
+                <Link
+                  href={`/bikes/${bike.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-4 rounded-lg outline-none focus:ring-0"
+                >
+                  <div className="flex h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]">
+                    {bike.photoUrls?.[0] ? (
+                      <img
+                        src={bike.photoUrls[0]}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-2xl text-[var(--text-faint)]" aria-hidden>🚲</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-lg font-bold text-[var(--text)]">
+                        {bike.bikeId}
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusBadgeClass(bike.status)}`}
+                      >
+                        {bike.status}
+                      </span>
+                    </div>
+                    {bike.label && bike.label !== bike.bikeId && (
+                      <p className="mt-0.5 text-sm text-[var(--text-muted)]">
+                        {bike.label}
+                      </p>
+                    )}
+                    {(bike.model || bike.size) && (
+                      <p className="mt-0.5 text-xs text-[var(--text-faint)]">
+                        {[bike.model, bike.size].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </Link>
+                <div
+                  className="flex flex-shrink-0 items-center gap-1"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleMaintenance(bike)}
+                    disabled={maintenanceId === bike.id}
+                    className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] disabled:opacity-60"
+                    title={bike.status === "maintenance" ? "Mark available" : "Mark maintenance"}
+                  >
+                    {maintenanceId === bike.id ? (
+                      <InlineLoader className="h-4 w-4" />
+                    ) : (
+                      bike.status === "maintenance" ? "Available" : "Maintenance"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openRemoveConfirm(bike)}
+                    disabled={!!bikeToRemove}
+                    className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg px-2.5 py-1.5 text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger-bg)] disabled:opacity-50"
+                    title="Remove bike"
+                  >
+                    Remove
+                  </button>
                 </div>
-                <div className="min-w-0">
-                  <span className="font-mono font-semibold text-[var(--text)]">
-                    {bike.bikeId}
-                  </span>
-                  {bike.label && bike.label !== bike.bikeId && (
-                    <span className="ml-2 text-sm text-[var(--text-muted)]">
-                      {bike.label}
-                    </span>
-                  )}
-                </div>
-              </Link>
-              <div className="flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    bike.status === "available"
-                      ? "bg-[var(--success-bg)] text-[var(--success)]"
-                      : bike.status === "maintenance"
-                        ? "bg-[var(--warning-bg)] text-[var(--warning)]"
-                        : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
-                  }`}
-                >
-                  {bike.status}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleMaintenance(bike)}
-                  disabled={maintenanceId === bike.id}
-                  className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] disabled:opacity-60"
-                >
-                  {maintenanceId === bike.id ? (
-                    <>
-                      <InlineLoader className="h-3.5 w-3.5" />
-                      <span>Updating…</span>
-                    </>
-                  ) : (
-                    bike.status === "maintenance" ? "Available" : "Maintenance"
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openRemoveConfirm(bike)}
-                  disabled={!!bikeToRemove}
-                  className="rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--danger)] hover:bg-[var(--danger-bg)] disabled:opacity-50"
-                >
-                  Remove
-                </button>
               </div>
             </li>
-          ))
-        )}
-      </ul>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

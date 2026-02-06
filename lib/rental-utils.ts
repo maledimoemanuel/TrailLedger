@@ -50,3 +50,32 @@ export function getElapsedMinutes(startedAt: Timestamp): number {
   const now = new Date();
   return Math.round((now.getTime() - start.getTime()) / 60000);
 }
+
+/** For a returned rental: minutes overdue (0 = on time), and whether it was on time. */
+export function getReturnStatus(
+  rentalEndsAt: Timestamp,
+  returnedAt: Timestamp,
+  config: ParkConfig = DEFAULT_PARK_CONFIG
+): { onTime: boolean; minutesOverdue: number } {
+  const end = toDate(rentalEndsAt);
+  const returned = toDate(returnedAt);
+  const overdueAt = addMinutes(end, config.graceMinutes);
+  if (returned <= overdueAt) {
+    return { onTime: true, minutesOverdue: 0 };
+  }
+  const minutesOverdue = Math.round((returned.getTime() - overdueAt.getTime()) / 60000);
+  return { onTime: false, minutesOverdue };
+}
+
+/** Format renter for display: "Name (email)" or "Name" or "—". */
+export function formatRenterDisplay(rental: {
+  renterName?: string;
+  renterEmail?: string;
+  renterPhone?: string;
+}): string {
+  const name = rental.renterName?.trim();
+  if (!name) return "—";
+  const parts = [rental.renterEmail?.trim(), rental.renterPhone?.trim()].filter(Boolean);
+  if (parts.length === 0) return name;
+  return `${name} (${parts.join(", ")})`;
+}

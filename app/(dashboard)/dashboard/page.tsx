@@ -8,6 +8,7 @@ import {
   getRemainingMinutes,
   getElapsedMinutes,
   getMinutesOverdue,
+  formatRenterDisplay,
   toDate,
 } from "@/lib/rental-utils";
 import { useToast } from "@/components/ui/toast";
@@ -130,86 +131,88 @@ export default function DashboardPage() {
                   : "bg-[var(--success-bg)] border-[var(--success)]/50";
 
             return (
-              <li
-                key={r.id}
-                className={`animate-in-up rounded-[var(--radius-lg)] border p-4 shadow-[var(--shadow-card)] ${cardBg}`}
-                style={{ animationDelay: `${index * 40}ms` } as React.CSSProperties}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <span className="font-mono text-xl font-bold text-[var(--text)]">
-                      {r.bikeId}
-                    </span>
-                    <span className="ml-2 text-sm text-[var(--text-muted)]">
-                      {r.staffEmail}
-                    </span>
+              <li key={r.id} style={{ animationDelay: `${index * 40}ms` } as React.CSSProperties}>
+                <Link
+                  href={`/dashboard/rentals/${r.id}`}
+                  className={`animate-in-up block rounded-[var(--radius-lg)] border p-4 shadow-[var(--shadow-card)] transition-[background-color,border-color] hover:opacity-95 focus:outline focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 ${cardBg}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="font-mono text-xl font-bold text-[var(--text)]">
+                        {r.bikeId}
+                      </span>
+                      <span className="ml-2 text-sm text-[var(--text-muted)]">
+                        {formatRenterDisplay(r) !== "—" ? formatRenterDisplay(r) : r.staffEmail}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      {isBuffer && (
+                        <span className="rounded-full bg-[var(--bg-muted)] px-3 py-1 font-medium text-[var(--text-muted)]">
+                          Buffer — rental starts in {remaining} min
+                        </span>
+                      )}
+                      {state === "on_time" && (
+                        <span className="rounded-full bg-[var(--success)]/20 px-3 py-1 font-medium text-[var(--success)]">
+                          On time
+                        </span>
+                      )}
+                      {isApproaching && (
+                        <span className="rounded-full bg-[var(--warning)]/20 px-3 py-1 font-medium text-[var(--warning)]">
+                          {remaining} min left
+                        </span>
+                      )}
+                      {isOverdue && (
+                        <span className="rounded-full bg-[var(--danger)] px-3 py-1 font-semibold text-white">
+                          {minsOverdue} min overdue
+                        </span>
+                      )}
+                      <span className="text-[var(--text-muted)]">
+                        Out {elapsed} min
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    {isBuffer && (
-                      <span className="rounded-full bg-[var(--bg-muted)] px-3 py-1 font-medium text-[var(--text-muted)]">
-                        Buffer — rental starts in {remaining} min
-                      </span>
-                    )}
-                    {state === "on_time" && (
-                      <span className="rounded-full bg-[var(--success)]/20 px-3 py-1 font-medium text-[var(--success)]">
-                        On time
-                      </span>
-                    )}
-                    {isApproaching && (
-                      <span className="rounded-full bg-[var(--warning)]/20 px-3 py-1 font-medium text-[var(--warning)]">
-                        {remaining} min left
-                      </span>
-                    )}
-                    {isOverdue && (
-                      <span className="rounded-full bg-[var(--danger)] px-3 py-1 font-semibold text-white">
-                        {minsOverdue} min overdue
-                      </span>
-                    )}
-                    <span className="text-[var(--text-muted)]">
-                      Out {elapsed} min
-                    </span>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-faint)]">
+                    <span>Checked out {startedAtStr}</span>
+                    <span>Rental ends {rentalEndStr}</span>
                   </div>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-faint)]">
-                  <span>Checked out {startedAtStr} by {r.staffEmail}</span>
-                  <span>Rental ends {rentalEndStr}</span>
-                </div>
-                {isOverdue && (
-                  <div className="mt-3 flex items-center gap-2">
-                    {r.incidentNote ? (
-                      <span className="text-xs text-[var(--text-muted)]">
-                        Incident: {r.incidentNote}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setIncidentUpdating(r.id);
-                          try {
-                            await updateRentalIncidentNote(
-                              r.id,
-                              `Noted at ${new Date().toLocaleString()}`
-                            );
-                            toast.success("Incident noted");
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "Failed to save");
-                          } finally {
-                            setIncidentUpdating(null);
-                          }
-                        }}
-                        disabled={incidentUpdating === r.id}
-                        className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--bg-muted)] disabled:opacity-50"
-                      >
-                        {incidentUpdating === r.id ? (
-                          <>
-                            <InlineLoader className="h-3 w-3" />
-                            <span>Noting…</span>
-                          </>
-                        ) : (
-                          "Incident noted"
-                        )}
-                      </button>
-                    )}
+                  {isOverdue && r.incidentNote && (
+                    <div className="mt-3 text-xs text-[var(--text-muted)]">
+                      Incident: {r.incidentNote}
+                    </div>
+                  )}
+                </Link>
+                {isOverdue && !r.incidentNote && (
+                  <div className="mt-2 flex items-center">
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIncidentUpdating(r.id);
+                        try {
+                          await updateRentalIncidentNote(
+                            r.id,
+                            `Noted at ${new Date().toLocaleString()}`
+                          );
+                          toast.success("Incident noted");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Failed to save");
+                        } finally {
+                          setIncidentUpdating(null);
+                        }
+                      }}
+                      disabled={incidentUpdating === r.id}
+                      className="inline-flex min-h-[36px] items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--bg-muted)] disabled:opacity-50"
+                    >
+                      {incidentUpdating === r.id ? (
+                        <>
+                          <InlineLoader className="h-3 w-3" />
+                          <span>Noting…</span>
+                        </>
+                      ) : (
+                        "Incident noted"
+                      )}
+                    </button>
                   </div>
                 )}
               </li>

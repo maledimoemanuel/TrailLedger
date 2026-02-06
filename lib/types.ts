@@ -15,6 +15,13 @@ export interface Bike {
 
 export type RentalStatus = "buffer" | "active" | "returned" | "overdue";
 
+/** Renter (customer) info collected at checkout and stored on the rental. */
+export interface RenterInfo {
+  name: string;
+  email?: string;
+  phone?: string;
+}
+
 export interface Rental {
   id: string;
   bikeId: string;
@@ -22,6 +29,10 @@ export interface Rental {
   status: RentalStatus;
   staffId: string;
   staffEmail: string;
+  /** Who rented the bike (name, email, phone). Collected at checkout. */
+  renterName?: string;
+  renterEmail?: string;
+  renterPhone?: string;
   startedAt: FirebaseTimestamp;
   bufferEndsAt: FirebaseTimestamp;
   rentalEndsAt: FirebaseTimestamp;

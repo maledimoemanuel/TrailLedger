@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   getBikeByBikeId,
   findActiveRentalByBikeId,
   checkOut,
   checkIn,
 } from "@/lib/firestore";
+import { getParkConfig } from "@/lib/config";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/toast";
 import { InlineLoader } from "@/components/ui/inline-loader";
 import { AddBikeModal } from "@/components/bikes/add-bike-modal";
-import type { Bike } from "@/lib/types";
+import { getReturnStatus, toDate, formatRenterDisplay } from "@/lib/rental-utils";
+import type { Timestamp } from "firebase/firestore";
+import type { Bike, Rental } from "@/lib/types";
+import type { ParkConfig } from "@/lib/types";
 
 function playSuccessBeep() {
   try {
@@ -31,16 +35,119 @@ function playSuccessBeep() {
   }
 }
 
+function formatTime(ts: Timestamp): string {
+  const d = toDate(ts);
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+function ReturnSummaryCard({
+  rental,
+  bikeLabel,
+  config,
+  onDismiss,
+}: {
+  rental: Rental;
+  bikeLabel?: string;
+  config: ParkConfig;
+  onDismiss: () => void;
+}) {
+  const returnedAt = rental.returnedAt;
+  const status = returnedAt
+    ? getReturnStatus(rental.rentalEndsAt, returnedAt, config)
+    : { onTime: true, minutesOverdue: 0 };
+  const duration = rental.totalMinutes ?? 0;
+
+  return (
+    <div className="animate-in-up rounded-[var(--radius-lg)] border-2 border-[var(--success)] bg-[var(--success-bg)] p-6 shadow-[var(--shadow-card)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <span className="text-4xl text-[var(--success)]" aria-hidden>✓</span>
+          <p className="mt-2 font-semibold text-[var(--text)]">Bike returned</p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="rounded-[var(--radius)] p-1 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
+      <dl className="mt-4 grid gap-2 text-sm">
+        <div>
+          <dt className="text-[var(--text-muted)]">Bike</dt>
+          <dd className="font-mono font-semibold text-[var(--text)]">
+            {rental.bikeId}
+            {bikeLabel && bikeLabel !== rental.bikeId && (
+              <span className="ml-1 font-sans font-normal text-[var(--text-muted)]">
+                {bikeLabel}
+              </span>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[var(--text-muted)]">Duration</dt>
+          <dd className="text-[var(--text)]">{duration} min</dd>
+        </div>
+        <div>
+          <dt className="text-[var(--text-muted)]">Status</dt>
+          <dd>
+            {status.onTime ? (
+              <span className="font-medium text-[var(--success)]">Returned on time</span>
+            ) : (
+              <span className="font-medium text-[var(--danger)]">
+                Returned {status.minutesOverdue} min overdue
+              </span>
+            )}
+          </dd>
+        </div>
+        {rental.startedAt && (
+          <div>
+            <dt className="text-[var(--text-muted)]">Started at</dt>
+            <dd className="text-[var(--text)]">{formatTime(rental.startedAt)}</dd>
+          </div>
+        )}
+        {returnedAt && (
+          <div>
+            <dt className="text-[var(--text-muted)]">Returned at</dt>
+            <dd className="text-[var(--text)]">{formatTime(returnedAt)}</dd>
+          </div>
+        )}
+        {formatRenterDisplay(rental) !== "—" && (
+          <div>
+            <dt className="text-[var(--text-muted)]">Rented to</dt>
+            <dd className="text-[var(--text)]">{formatRenterDisplay(rental)}</dd>
+          </div>
+        )}
+        {rental.staffEmail && (
+          <div>
+            <dt className="text-[var(--text-muted)]">Checked out by</dt>
+            <dd className="text-[var(--text)]">{rental.staffEmail}</dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
+
 export default function ScanPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [success, setSuccess] = useState<"check_out" | "check_in" | null>(null);
+  const [returnSummary, setReturnSummary] = useState<{
+    rental: Rental;
+    bikeLabel?: string;
+    config: ParkConfig;
+  } | null>(null);
   const [result, setResult] = useState<{
     bikeId: string;
     action: "check_out" | "check_in";
     bike?: Bike;
     rentalId?: string;
   } | null>(null);
+  const [renterName, setRenterName] = useState("");
+  const [renterEmail, setRenterEmail] = useState("");
+  const [renterPhone, setRenterPhone] = useState("");
   const [addBikeScannedCode, setAddBikeScannedCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,12 +200,25 @@ export default function ScanPage() {
 
   async function confirmCheckOut() {
     if (!result?.bike || result.action !== "check_out" || !user) return;
+    const name = renterName.trim();
+    if (!name) {
+      setError("Enter renter name");
+      toast.error("Renter name is required");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await checkOut(result.bike.id, result.bike.bikeId, user.uid, user.email ?? "");
+      await checkOut(result.bike.id, result.bike.bikeId, user.uid, user.email ?? "", {
+        name: name,
+        email: renterEmail.trim() || undefined,
+        phone: renterPhone.trim() || undefined,
+      });
       playSuccessBeep();
       setResult(null);
+      setRenterName("");
+      setRenterEmail("");
+      setRenterPhone("");
       setSuccess("check_out");
       setTimeout(() => setSuccess(null), 1800);
       toast.success("Checked out");
@@ -111,17 +231,28 @@ export default function ScanPage() {
     }
   }
 
+  const clearReturnSummary = useCallback(() => {
+    setReturnSummary(null);
+    setSuccess(null);
+  }, []);
+
   async function confirmCheckIn() {
     if (!result?.rentalId || result.action !== "check_in") return;
     setBusy(true);
     setError(null);
     try {
-      await checkIn(result.rentalId);
+      const rental = await checkIn(result.rentalId);
+      const config = await getParkConfig();
       playSuccessBeep();
       setResult(null);
+      setReturnSummary({
+        rental,
+        bikeLabel: result.bike?.label,
+        config,
+      });
       setSuccess("check_in");
-      setTimeout(() => setSuccess(null), 1800);
       toast.success("Checked in");
+      setTimeout(clearReturnSummary, 6000);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Check in failed";
       setError(msg);
@@ -133,6 +264,9 @@ export default function ScanPage() {
 
   function cancelResult() {
     setResult(null);
+    setRenterName("");
+    setRenterEmail("");
+    setRenterPhone("");
     setError(null);
   }
 
@@ -145,15 +279,30 @@ export default function ScanPage() {
         Scan an NFC tag to start or end a rental. This works in supported browsers (e.g. Chrome on Android).
       </p>
 
-      {success && (
+      {success === "check_out" && (
         <div className="animate-in-up flex flex-col items-center justify-center rounded-[var(--radius-lg)] border-2 border-[var(--success)] bg-[var(--success-bg)] py-8 shadow-[var(--shadow-card)]">
           <span className="text-4xl text-[var(--success)]" aria-hidden>✓</span>
-          <p className="mt-2 font-semibold text-[var(--text)]">
-            {success === "check_out" ? "Checked out" : "Checked in"}
-          </p>
+          <p className="mt-2 font-semibold text-[var(--text)]">Checked out</p>
           <p className="text-sm text-[var(--text-muted)]">
-            {success === "check_out" ? "Rental started. 5-min buffer, then timer." : "Bike returned."}
+            Rental started. 5-min buffer, then timer.
           </p>
+        </div>
+      )}
+
+      {success === "check_in" && returnSummary && (
+        <ReturnSummaryCard
+          rental={returnSummary.rental}
+          bikeLabel={returnSummary.bikeLabel}
+          config={returnSummary.config}
+          onDismiss={clearReturnSummary}
+        />
+      )}
+
+      {success === "check_in" && !returnSummary && (
+        <div className="animate-in-up flex flex-col items-center justify-center rounded-[var(--radius-lg)] border-2 border-[var(--success)] bg-[var(--success-bg)] py-8 shadow-[var(--shadow-card)]">
+          <span className="text-4xl text-[var(--success)]" aria-hidden>✓</span>
+          <p className="mt-2 font-semibold text-[var(--text)]">Checked in</p>
+          <p className="text-sm text-[var(--text-muted)]">Bike returned.</p>
         </div>
       )}
 
@@ -277,6 +426,44 @@ export default function ScanPage() {
             <p className="mt-2 text-sm text-[var(--danger)]" role="alert">
               {error}
             </p>
+          )}
+          {result.action === "check_out" && (
+            <div className="mt-6 space-y-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/50 p-4">
+              <p className="text-sm font-medium text-[var(--text)]">Who is renting?</p>
+              <div className="grid gap-3 sm:grid-cols-1">
+                <label className="block">
+                  <span className="block text-xs font-medium text-[var(--text-muted)]">Name (required)</span>
+                  <input
+                    type="text"
+                    value={renterName}
+                    onChange={(e) => setRenterName(e.target.value)}
+                    placeholder="Renter full name"
+                    required
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-[var(--text-muted)]">Email (optional)</span>
+                  <input
+                    type="email"
+                    value={renterEmail}
+                    onChange={(e) => setRenterEmail(e.target.value)}
+                    placeholder="email@example.com"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-medium text-[var(--text-muted)]">Phone (optional)</span>
+                  <input
+                    type="tel"
+                    value={renterPhone}
+                    onChange={(e) => setRenterPhone(e.target.value)}
+                    placeholder="(555) 123-4567"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+                  />
+                </label>
+              </div>
+            </div>
           )}
           <div className="mt-6 flex gap-3">
             {result.action === "check_out" && (

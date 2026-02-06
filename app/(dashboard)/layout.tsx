@@ -13,6 +13,7 @@ const nav = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/scan", label: "Scan" },
   { href: "/bikes", label: "Bikes" },
+  { href: "/history", label: "History" },
   { href: "/settings", label: "Settings" },
   { href: "/reports", label: "Reports" },
 ];
